@@ -788,7 +788,7 @@ class UNetModel(nn.Module):
             for i, l in enumerate(replace_attns):
                 for k, a in enumerate(l):
                     if a.shape[-1] not in ignore:
-                        print(f"replacing {i}_blocks, {k}th block, size: {a.shape}")
+                        #print(f"replacing {i}_blocks, {k}th block, size: {a.shape}")
                         self.extract_attentions[i][k].replace_attn = a
 
         hs = []

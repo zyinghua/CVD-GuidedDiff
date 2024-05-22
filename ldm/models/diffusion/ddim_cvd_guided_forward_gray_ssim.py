@@ -16,13 +16,14 @@ from ldm.modules.doodl import memcnn
 
 
 class DDIMCVDSampler(object):
-    def __init__(self, model, cvd_args, schedule="linear", rnd=None):
+    def __init__(self, model, cvd_args, schedule="linear", rnd=None, D=None):
         super().__init__()
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
         self.cvdkwargs = cvd_args
         self.rnd = rnd
+        self.D = D.to(self.model.device)
         self.iter = 0
 
     def register_buffer(self, name, attr):
@@ -295,13 +296,11 @@ class DDIMCVDSampler(object):
         return grad * self.cvdkwargs['gs']
 
     def loss_fn(self, x_cvd_d):
-        cl_w = self.cvdkwargs['cvd_loss_weights'][0]  # color loss weight
-        sl_w = self.cvdkwargs['cvd_loss_weights'][1]  # ms ssim loss (contrast loss) weight
-
         x_cvd_d_sim = run_sim(x_cvd_d, self.cvdkwargs['cvd_degree'], x_cvd_d.device,
                               cvd_type=self.cvdkwargs['cvd_type'])
 
-        return cl_w * color_info_loss(x_cvd_d, x_cvd_d_sim) + sl_w * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
+        cvd_loss = 5 * color_info_loss(x_cvd_d, x_cvd_d_sim) + 50 * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
+        return cvd_loss
 
     def decode_xt(self, x, e, sqrt_one_minus_at, a_t):
         pred_x0 = (x - sqrt_one_minus_at * e) / a_t.sqrt()

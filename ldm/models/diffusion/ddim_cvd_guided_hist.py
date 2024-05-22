@@ -260,11 +260,11 @@ class DDIMCVDSampler(object):
             x_var_d = self.decode_xt(x_cvd, e_t_cvd, sqrt_one_minus_at, a_t)
             x_pivot_d = self.decode_xt(x_cvd_pivot, e_t_cvd_pivot, sqrt_one_minus_at, a_t)
 
-        # def convert(images):
-        #     return (images * 255).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu()
+        def convert(images):
+            return (images * 255).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu()
 
-        # PIL.Image.fromarray(convert(x_pivot_d)[0].numpy(), 'RGB').save(f'/root/inm/x_pivot_{self.iter}.png')
-        # PIL.Image.fromarray(convert(x_var_d)[0].numpy(), 'RGB').save(f'/root/inm/x_cvd_{self.iter}.png')
+        PIL.Image.fromarray(convert(x_pivot_d)[0].numpy(), 'RGB').save(f'/root/inm/x_pivot_{self.iter}.png')
+        PIL.Image.fromarray(convert(x_var_d)[0].numpy(), 'RGB').save(f'/root/inm/x_cvd_{self.iter}.png')
 
         return self.grad_fn(x_cvd, x_var_d, x_pivot_d, retain_graph=retain_graph)
 
@@ -295,7 +295,9 @@ class DDIMCVDSampler(object):
                         cvd_type=self.cvdkwargs['cvd_type'])
 
         alpha = self.cvdkwargs['cvd_alpha']
-        cvd_loss = alpha * color_info_loss(x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
+
+        alpha = 0.3
+        cvd_loss = alpha * hist_loss(x_cvd_d.device, x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
         d_logits = self.run_D(x_cvd_d)
         d_loss = torch.nn.functional.softplus(-d_logits)
         return cvd_loss + 1e-2 * d_loss.sum()

@@ -216,22 +216,26 @@ class DDIMCVDSampler(object):
         sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
         sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index], device=device)
 
+        pred_x0 = (x - sqrt_one_minus_at * e_t_cvd.detach()) / a_t.sqrt()
+        cvd_guidance = self.cond_fn(x_cvd, e_t_cvd, sqrt_one_minus_at, a_t, x_cvd_pivot, e_t_cvd_pivot, sqrt_one_minus_at)
+        e_t_cvd = e_t_cvd - a_t.sqrt() * cvd_guidance
+
         if self.cvdkwargs['backward_iters'] > 0:
-            x_cvd = x_cvd.detach().requires_grad_(True)
-            optimizer_backward = AdamW([x_cvd], lr=self.cvdkwargs['backward_lr'])
+            mask = torch.zeros_like(x_cvd)
+            mask = mask.detach().requires_grad_(True)
+            optimizer_backward = AdamW([mask], lr=self.cvdkwargs['backward_lr'])
+
+            x0_full_pivot = self.decode_xt(x_cvd_pivot.detach(), e_t_cvd_pivot.detach(), sqrt_one_minus_at, a_t)
 
             for i in range(self.cvdkwargs['backward_iters']):
                 optimizer_backward.zero_grad()
-                x0_full = self.decode_xt(x_cvd, e_t_cvd.detach(), sqrt_one_minus_at, a_t)
-                x0_full_pivot = self.decode_xt(x_cvd_pivot.detach(), e_t_cvd_pivot.detach(), sqrt_one_minus_at, a_t)
-                cvd_loss = self.loss_fn(x0_full, x0_full_pivot)
+                pred_x0_ = pred_x0 + mask
+                pred_x0_full = self.decode_x0(pred_x0_)
+                cvd_loss = self.loss_fn(pred_x0_full, x0_full_pivot, sqrt_one_minus_at)
                 cvd_loss.backward()
                 optimizer_backward.step()
 
-            e_t_cvd, _ = self.model.apply_model(x_cvd, t, c, replace_attns=attn_maps)
-
-        cvd_guidance = self.cond_fn(x_cvd, e_t_cvd, sqrt_one_minus_at, a_t, x_cvd_pivot, e_t_cvd_pivot)
-        e_t_cvd = e_t_cvd - a_t.sqrt() * cvd_guidance
+            e_t_cvd = e_t_cvd - (a_t / (1-a_t)).sqrt() * mask
 
         torch.set_grad_enabled(False)
         with torch.no_grad():
@@ -255,21 +259,21 @@ class DDIMCVDSampler(object):
 
         return x_prev_cvd, pred_x0_cvd, x_prev_cvd_pivot
 
-    def cond_fn(self, x_cvd, e_t_cvd, sqrt_one_minus_at, a_t, x_cvd_pivot, e_t_cvd_pivot, retain_graph=True):
+    def cond_fn(self, x_cvd, e_t_cvd, sqrt_one_minus_at, a_t, x_cvd_pivot, e_t_cvd_pivot, nl, retain_graph=True):
         with torch.enable_grad():
             x_var_d = self.decode_xt(x_cvd, e_t_cvd, sqrt_one_minus_at, a_t)
             x_pivot_d = self.decode_xt(x_cvd_pivot, e_t_cvd_pivot, sqrt_one_minus_at, a_t)
 
-        # def convert(images):
-        #     return (images * 255).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu()
+        def convert(images):
+            return (images * 255).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu()
 
-        # PIL.Image.fromarray(convert(x_pivot_d)[0].numpy(), 'RGB').save(f'/root/inm/x_pivot_{self.iter}.png')
-        # PIL.Image.fromarray(convert(x_var_d)[0].numpy(), 'RGB').save(f'/root/inm/x_cvd_{self.iter}.png')
+        PIL.Image.fromarray(convert(x_pivot_d)[0].numpy(), 'RGB').save(f'/root/inm/x_pivot_{self.iter}.png')
+        PIL.Image.fromarray(convert(x_var_d)[0].numpy(), 'RGB').save(f'/root/inm/x_cvd_{self.iter}.png')
 
-        return self.grad_fn(x_cvd, x_var_d, x_pivot_d, retain_graph=retain_graph)
+        return self.grad_fn(x_cvd, x_var_d, x_pivot_d, nl, retain_graph=retain_graph)
 
-    def grad_fn(self, x_cvd, x_cvd_d, x_pivot_d, retain_graph=True):
-        cvd_loss = self.loss_fn(x_cvd_d, x_pivot_d)
+    def grad_fn(self, x_cvd, x_cvd_d, x_pivot_d, nl, retain_graph=True):
+        cvd_loss = self.loss_fn(x_cvd_d, x_pivot_d, nl)
         grad = torch.autograd.grad(-cvd_loss, x_cvd, retain_graph=retain_graph)[0].detach()
 
         return grad * self.cvdkwargs['gs']
@@ -287,7 +291,7 @@ class DDIMCVDSampler(object):
         return torch.cat((L_channel, a_channel, b_channel), dim=1)
 
 
-    def loss_fn(self, x_cvd_d, x_pivot_d):
+    def loss_fn(self, x_cvd_d, x_pivot_d, nl):
         x_cvd_d_sim = run_sim(x_cvd_d, self.cvdkwargs['cvd_degree'], x_cvd_d.device,
                               cvd_type=self.cvdkwargs['cvd_type'])
 
@@ -295,12 +299,14 @@ class DDIMCVDSampler(object):
                         cvd_type=self.cvdkwargs['cvd_type'])
 
         alpha = self.cvdkwargs['cvd_alpha']
+
+        alpha = 0.3
         cvd_loss = alpha * color_info_loss(x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
         d_logits = self.run_D(x_cvd_d)
         d_loss = torch.nn.functional.softplus(-d_logits)
         return cvd_loss + 1e-2 * d_loss.sum()
 
-    def decode_xt(self, x, e, sqrt_one_minus_at, a_t):
+    def decode_xt(self, x, e, sqrt_one_minus_at, a_t, mask=None):
         pred_x0 = (x - sqrt_one_minus_at * e) / a_t.sqrt()
         return self.decode_x0(pred_x0)
 
