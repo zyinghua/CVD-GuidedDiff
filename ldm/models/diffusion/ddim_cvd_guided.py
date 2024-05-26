@@ -24,8 +24,12 @@ class DDIMCVDSampler(object):
         self.schedule = schedule
         self.cvdkwargs = cvd_args
         self.rnd = rnd
-        self.D = D.to(self.model.device)
         self.iter = 0
+
+        if D is not None:
+            self.D = D.to(self.model.device)
+        else:
+            self.D = None
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
@@ -295,10 +299,11 @@ class DDIMCVDSampler(object):
                         cvd_type=self.cvdkwargs['cvd_type'])
 
         alpha = self.cvdkwargs['cvd_alpha']
-        cvd_loss = alpha * color_info_loss(x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
-        d_logits = self.run_D(x_cvd_d)
-        d_loss = torch.nn.functional.softplus(-d_logits)
-        return cvd_loss + 1e-2 * d_loss.sum()
+        #cvd_loss = alpha * color_info_loss(x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
+        cvd_loss = alpha * hist_loss(x_cvd_d.device, x_cvd_d, x_cvd_d_sim) + (1 - alpha) * MS_SSIM_loss(x_cvd_d, x_cvd_d_sim).sum()
+        # d_logits = self.run_D(x_cvd_d)
+        # d_loss = torch.nn.functional.softplus(-d_logits)
+        return cvd_loss# + 1e-2 * d_loss.sum()
 
     def decode_xt(self, x, e, sqrt_one_minus_at, a_t):
         pred_x0 = (x - sqrt_one_minus_at * e) / a_t.sqrt()

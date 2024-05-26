@@ -96,8 +96,11 @@ def convsample_ddim(model, steps, shape, eta=1.0, cvd_args=None, rnd=None, initi
         ddim_cvd = DDIMCVDDOODLSampler(model, cvd_args=cvd_args, rnd=rnd)
     else:
         network_pkl = ""
-        with open(network_pkl, 'rb') as f:
-            D = pickle.load(f)['D']  # torch.nn.Module
+        if network_pkl != "":
+            with open(network_pkl, 'rb') as f:
+                D = pickle.load(f)['D']  # torch.nn.Module
+        else:
+            D = None
         ddim_cvd = DDIMCVDSampler(model, cvd_args=cvd_args, rnd=rnd, D=D)
 
     bs = shape[0]

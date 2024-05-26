@@ -219,16 +219,11 @@ def run_single(img, degree):
     print(f'VGG of {img}.png', Loss)
     print('*' * 50)
 
-def run_cvd_metrics(img, degree):
-    im = np.asarray(PIL.Image.open(f'{img}.png').convert('RGB')).copy()
+def run_cvd_metrics(img, degree, type='DEUTAN'):
+    im = np.asarray(PIL.Image.open(f'{img}').convert('RGB')).copy()
     res = get_tensor(im)
-    res_sim = StyleGAN2Loss.run_Sim(res * 2 - 1, device='cpu', fix=True, cvd_type='PROTAN', degree=degree)
-    ssim_val = pytorch_msssim.ssim(res, (res_sim + 1) / 2,
-                                   data_range=1)  # , size_average=False, nonnegative_ssim=True)
-    print(f'SSIM of {img}.png', ssim_val)
-    ms_ssim_val = ms_ssim(res, (res_sim + 1) / 2, data_range=1)  # , size_average=False, nonnegative_ssim=True)
-    print(f'MS_SSIM of {img}.png', ms_ssim_val)
     res = res * 2 - 1
+    res_sim = StyleGAN2Loss.run_Sim(res, device='cpu', fix=True, cvd_type=type, degree=degree)
     cpr = StyleGAN2Loss.contrastLoss(res, res_sim)
     print(f'cpr of {img}.png', cpr)
     colorl = color_info_loss(res, res_sim)
@@ -240,7 +235,7 @@ def run_cvd_metrics(img, degree):
 
 
 def get_sim(img, degree):
-    im = np.asarray(PIL.Image.open(f'{img}.png').convert('RGB')).copy()
+    im = np.asarray(PIL.Image.open(f'{img}').convert('RGB')).copy()
     res = transform1(im).unsqueeze(0)
     res_sim = StyleGAN2Loss.run_Sim(res * 2 - 1, device='cpu', fix=True, cvd_type='PROTAN', degree=degree)
 
@@ -253,8 +248,14 @@ def get_sim(img, degree):
     im_inv.save(f"{img}_sim_{degree}.png")
 
 
-#get_sim('doodl5-no-g', 1.0)
-#run_single('doodl5-no-g', 1)
-get_sim('stilllife_sum', 1)
-# run_res(['abstract_20', 'abstract_80'])
-#run_folder('test/')
+#get_sim('stilllife_sum.png', 1.0)
+print("=============1.0===============")
+run_cvd_metrics('', 1.0)
+print("=============0.8===============")
+run_cvd_metrics('', 0.8)
+print("=============0.6===============")
+run_cvd_metrics('', 0.6)
+print("=============0.4===============")
+run_cvd_metrics('', 0.4)
+print("=============0.2===============")
+run_cvd_metrics('', 0.2)
