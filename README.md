@@ -1,0 +1,1 @@
+### Code repo for CVD-GuidedDiff. Based on [Latent Diffusion](https://github.com/CompVis/latent-diffusion).
